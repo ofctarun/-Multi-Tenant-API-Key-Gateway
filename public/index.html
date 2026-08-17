@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Key Gateway & Rate Limiter Console</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header Sidebar / Topbar -->
+    <header class="header">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <div>
+          <h1>API Key Gateway</h1>
+          <span class="subtitle">Multi-Tenant Key Lifecycle & Sliding-Window Rate Limiter</span>
+        </div>
+      </div>
+      <div class="tenant-selector">
+        <label for="tenantSelect">Active Tenant:</label>
+        <select id="tenantSelect">
+          <option value="1">Acme Corporation (Tenant ID: 1)</option>
+        </select>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Quick Stats Metrics -->
+      <section class="metrics-grid">
+        <div class="metric-card glass">
+          <div class="metric-title">Active Keys</div>
+          <div class="metric-value" id="statActiveKeys">0</div>
+          <div class="metric-sub">Issued for Tenant</div>
+        </div>
+        <div class="metric-card glass">
+          <div class="metric-title">Total Requests (1h)</div>
+          <div class="metric-value" id="statTotalRequests">0</div>
+          <div class="metric-sub">Logged in Audit Table</div>
+        </div>
+        <div class="metric-card glass">
+          <div class="metric-title">Rate Limited (1h)</div>
+          <div class="metric-value text-danger" id="statRateLimited">0</div>
+          <div class="metric-sub">HTTP 429 Responses</div>
+        </div>
+        <div class="metric-card glass">
+          <div class="metric-title">Limiter Strategy</div>
+          <div class="metric-value text-accent" style="font-size: 1.2rem; line-height: 2.2rem;">Redis Sorted Set</div>
+          <div class="metric-sub">Sliding Window Log</div>
+        </div>
+      </section>
+
+      <!-- Key Management & Issue Form -->
+      <section class="section-card glass">
+        <div class="section-header">
+          <div>
+            <h2>API Key Management</h2>
+            <p>Generate, rotate, or revoke API keys for your service integrations.</p>
+          </div>
+          <button class="btn btn-primary" id="openIssueModalBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Issue New Key
+          </button>
+        </div>
+
+        <!-- Keys Table -->
+        <div class="table-responsive">
+          <table class="data-table" id="keysTable">
+            <thead>
+              <tr>
+                <th>Key ID</th>
+                <th>Masked Key</th>
+                <th>Rate Limit (req/min)</th>
+                <th>Status</th>
+                <th>Created At</th>
+                <th>Expires At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="keysTableBody">
+              <tr>
+                <td colspan="7" class="text-center loading-text">Loading API keys...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Interactive API Tester & Usage Analytics -->
+      <div class="two-column-grid">
+        <!-- API Tester Harness -->
+        <section class="section-card glass">
+          <div class="section-header">
+            <h2>Interactive Gateway Tester</h2>
+          </div>
+          <p class="description-text">Test request authentication and rate limiting directly against <code>GET /api/protected</code>.</p>
+          
+          <div class="form-group">
+            <label for="testerApiKeyInput">API Key Header Token:</label>
+            <input type="text" id="testerApiKeyInput" class="form-control code-input" placeholder="Paste full plaintext key (e.g. sk_live_...)" />
+          </div>
+
+          <div class="tester-actions">
+            <button class="btn btn-accent" id="sendSingleRequestBtn">Send 1 Request</button>
+            <button class="btn btn-warning" id="sendBurstRequestsBtn">Burst 6 Requests (Test 429 Limit)</button>
+          </div>
+
+          <div class="tester-output-box" id="testerOutputBox">
+            <div class="output-placeholder">Response log will appear here after sending a request...</div>
+          </div>
+        </section>
+
+        <!-- Usage Chart -->
+        <section class="section-card glass">
+          <div class="section-header">
+            <h2>Request Volume (Last Hour)</h2>
+          </div>
+          <div class="chart-container">
+            <canvas id="usageChart"></canvas>
+          </div>
+        </section>
+      </div>
+
+      <!-- Audit Logs Table -->
+      <section class="section-card glass">
+        <div class="section-header">
+          <div>
+            <h2>Audit Logs</h2>
+            <p>Real-time audit log of authenticated API calls and rate-limiting enforcement.</p>
+          </div>
+          <button class="btn btn-secondary" id="refreshAuditLogsBtn">Refresh Logs</button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table" id="auditLogsTable">
+            <thead>
+              <tr>
+                <th>Log ID</th>
+                <th>Key ID</th>
+                <th>Masked Key</th>
+                <th>Endpoint</th>
+                <th>Status Code</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="auditLogsTableBody">
+              <tr>
+                <td colspan="6" class="text-center loading-text">Loading audit logs...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination-bar">
+          <span id="paginationInfo">Page 1 of 1</span>
+          <div class="pagination-controls">
+            <button class="btn btn-icon" id="prevPageBtn" disabled>&laquo; Prev</button>
+            <button class="btn btn-icon" id="nextPageBtn" disabled>Next &raquo;</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Issue Key Modal -->
+  <div class="modal-backdrop" id="issueKeyModal">
+    <div class="modal-card glass">
+      <div class="modal-header">
+        <h3>Issue New API Key</h3>
+        <button class="close-btn" id="closeIssueModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="newKeyRateLimit">Rate Limit Per Minute:</label>
+          <input type="number" id="newKeyRateLimit" class="form-control" value="100" min="1" max="10000" />
+          <span class="help-text">Set total allowed requests in a 60-second sliding window.</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelIssueBtn">Cancel</button>
+        <button class="btn btn-primary" id="confirmIssueBtn">Generate Key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key Created / Plaintext Reveal Modal -->
+  <div class="modal-backdrop" id="revealKeyModal">
+    <div class="modal-card glass">
+      <div class="modal-header">
+        <h3><span class="text-success">&#10003;</span> API Key Generated</h3>
+        <button class="close-btn" id="closeRevealModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="warning-banner"><strong>Important:</strong> Copy your API key now. You will not be able to see it again!</p>
+        <div class="key-display-box">
+          <code id="plaintextKeyDisplay">sk_live_...</code>
+          <button class="btn btn-icon" id="copyKeyBtn">Copy</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="dismissRevealBtn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Action Modal (Revoke / Rotate) -->
+  <div class="modal-backdrop" id="confirmModal">
+    <div class="modal-card glass">
+      <div class="modal-header">
+        <h3 id="confirmModalTitle">Confirm Action</h3>
+        <button class="close-btn" id="closeConfirmModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmModalMessage">Are you sure you want to perform this action?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelConfirmBtn">Cancel</button>
+        <button class="btn btn-danger" id="executeConfirmBtn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
